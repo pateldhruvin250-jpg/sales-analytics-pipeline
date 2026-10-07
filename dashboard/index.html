@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sales Analytics Dashboard</title>
+<style>
+  :root {
+    --paper: #f8fafb; --panel: #ffffff; --ink: #1f2933; --muted: #5b6770; --line: #d9e0e5;
+    --revenue: #0e7c7b; --profit: #3b4cc0; --warn: #b4452a; --soft: #e7f1f1;
+    font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); line-height: 1.5; }
+  main { max-width: 1120px; margin: 0 auto; padding: 28px 20px 48px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; font-weight: 650; }
+  h2 { font-size: 1rem; margin: 0 0 2px; font-weight: 650; }
+  .sub { color: var(--muted); font-size: .875rem; margin: 0; }
+  .finding { margin: 18px 0 22px; padding: 14px 16px; background: var(--soft); border-left: 4px solid var(--warn);
+             font-size: 1.05rem; max-width: 78ch; }
+  .kpis { display: flex; flex-wrap: wrap; border: 1px solid var(--line); background: var(--panel); margin-bottom: 20px; }
+  .kpi { flex: 1 1 150px; padding: 14px 16px; border-right: 1px solid var(--line); }
+  .kpi:last-child { border-right: 0; }
+  .kpi b { display: block; font-size: 1.5rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .kpi span { color: var(--muted); font-size: .8125rem; }
+  .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+  section { background: var(--panel); border: 1px solid var(--line); padding: 16px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  .head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: var(--panel); padding: 5px 12px; font: inherit; font-size: .8125rem; color: var(--muted); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .seg button:focus-visible { outline: 2px solid var(--profit); outline-offset: -2px; }
+  .chart { position: relative; height: 280px; }
+  .chart.tall { height: 340px; }
+  table { width: 100%; border-collapse: collapse; font-size: .875rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: .8125rem; }
+  td.n, th.n { text-align: right; }
+  .quality { margin-top: 22px; color: var(--muted); font-size: .8125rem; }
+  .error { padding: 16px; border: 1px solid var(--warn); color: var(--warn); background: #fff; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .kpi { border-right: 0; border-bottom: 1px solid var(--line); } }
+</style>
+</head>
+<body>
+<main id="app">
+  <h1>Sales Analytics Dashboard</h1>
+  <p class="sub" id="range"></p>
+  <p class="finding" id="finding" hidden></p>
+  <div class="kpis" id="kpis"></div>
+
+  <div class="grid">
+    <section class="wide">
+      <div class="head">
+        <div><h2>Revenue and profit over time</h2><p class="sub" id="trendNote"></p></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <div class="seg" id="periodSeg" role="group" aria-label="Period">
+            <button data-v="monthly" aria-pressed="true">Monthly</button><button data-v="weekly" aria-pressed="false">Weekly</button>
+          </div>
+          <div class="seg" id="metricSeg" role="group" aria-label="Metric">
+            <button data-v="both" aria-pressed="true">Both</button><button data-v="revenue" aria-pressed="false">Revenue</button><button data-v="profit" aria-pressed="false">Profit</button>
+          </div>
+        </div>
+      </div>
+      <div class="chart tall"><canvas id="trend" role="img" aria-label="Revenue and profit trend"></canvas></div>
+    </section>
+
+    <section>
+      <h2>Regions: revenue and profit margin</h2><p class="sub">Bars show revenue; the table gives margin and average discount.</p>
+      <div class="chart" style="height:200px"><canvas id="regions" role="img" aria-label="Revenue by region"></canvas></div>
+      <table id="regionTable"></table>
+    </section>
+
+    <section>
+      <h2>Profit margin by discount level</h2><p class="sub">Deeper discounts shrink the margin on each order line.</p>
+      <div class="chart"><canvas id="discounts" role="img" aria-label="Profit margin by discount band"></canvas></div>
+    </section>
+
+    <section>
+      <h2>Top 10 products by revenue</h2>
+      <div class="chart tall"><canvas id="products" role="img" aria-label="Top products by revenue"></canvas></div>
+    </section>
+
+    <section>
+      <h2>Profit by category</h2>
+      <div class="chart"><canvas id="categories" role="img" aria-label="Profit by category"></canvas></div>
+    </section>
+
+    <section class="wide">
+      <h2>Top 10 customers</h2>
+      <table id="customerTable"></table>
+    </section>
+  </div>
+  <p class="quality" id="quality"></p>
+</main>
+
+<script src="data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  var D = window.DASHBOARD;
+  var app = document.getElementById('app');
+  if (!D) { app.innerHTML = '<p class="error">dashboard/data.js is missing. Run: python3 tools/build_dashboard_data.py</p>'; return; }
+  if (typeof Chart === 'undefined') { app.insertAdjacentHTML('afterbegin', '<p class="error">Chart.js could not load. Check your internet connection and reload.</p>'); }
+
+  var num = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
+  var dec = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 });
+  var C = { revenue: '#0e7c7b', profit: '#3b4cc0', warn: '#b4452a', grid: '#e3e8ec' };
+  var el = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+
+  // Header
+  var m = D.monthly;
+  el('range').textContent = m.length ? m[0].month_label + ' to ' + m[m.length - 1].month_label + ' | ' + num.format(D.quality.loaded) + ' order lines' : '';
+
+  // KPI strip
+  var k = D.kpi;
+  var kp = [[num.format(k.total_revenue), 'Revenue'], [num.format(k.total_profit), 'Profit'], [dec.format(k.profit_margin_pct) + '%', 'Profit margin'],
+            [num.format(k.total_orders), 'Orders'], [num.format(k.total_customers), 'Customers'], [num.format(k.avg_order_value), 'Average order value']];
+  el('kpis').innerHTML = kp.map(function (x) { return '<div class="kpi"><b>' + x[0] + '</b><span>' + x[1] + '</span></div>'; }).join('');
+
+  // Finding, computed from the data (never hard-coded)
+  if (D.regions.length > 1 && D.discounts.length > 1) {
+    var worst = D.regions.slice().sort(function (a, b) { return a.profit_margin_pct - b.profit_margin_pct; })[0];
+    var others = D.regions.filter(function (r) { return r !== worst; });
+    var avgOther = others.reduce(function (s, r) { return s + r.avg_discount_pct; }, 0) / others.length;
+    var first = D.discounts[0], last = D.discounts[D.discounts.length - 1];
+    var f = el('finding'); f.hidden = false;
+    f.textContent = worst.region_name + ' has the lowest profit margin (' + dec.format(worst.profit_margin_pct) + '%) on ' + dec.format(worst.revenue_share_pct) +
+      '% of revenue. Its average discount is ' + dec.format(worst.avg_discount_pct) + '%, against ' + dec.format(avgOther) + '% in the other regions. Lines discounted ' +
+      last.discount_band.toLowerCase() + ' earn ' + dec.format(last.profit_margin_pct) + '% margin; lines with ' + first.discount_band.toLowerCase() + ' earn ' + dec.format(first.profit_margin_pct) + '%.';
+  }
+
+  // Tables
+  el('regionTable').innerHTML = '<tr><th>Region</th><th class="n">Revenue</th><th class="n">Margin</th><th class="n">Avg discount</th></tr>' +
+    D.regions.map(function (r) { return '<tr><td>' + esc(r.region_name) + '</td><td class="n">' + num.format(r.revenue) + '</td><td class="n">' + dec.format(r.profit_margin_pct) + '%</td><td class="n">' + dec.format(r.avg_discount_pct) + '%</td></tr>'; }).join('');
+  el('customerTable').innerHTML = '<tr><th>Rank</th><th>Customer</th><th>Segment</th><th class="n">Orders</th><th class="n">Revenue</th><th class="n">Profit</th></tr>' +
+    D.top_customers.map(function (c) { return '<tr><td>' + c.revenue_rank + '</td><td>' + esc(c.customer_name) + '</td><td>' + esc(c.segment) + '</td><td class="n">' + c.orders + '</td><td class="n">' + num.format(c.revenue) + '</td><td class="n">' + num.format(c.profit) + '</td></tr>'; }).join('');
+
+  var q = D.quality, reasons = Object.keys(q.reasons).sort().map(function (r) { return r.replace(/_/g, ' ') + ': ' + q.reasons[r]; }).join(', ');
+  el('quality').textContent = 'Data quality: ' + num.format(q.loaded) + ' rows loaded, ' + num.format(q.rejected) + ' rejected during cleaning' + (reasons ? ' (' + reasons + ').' : '.');
+
+  if (typeof Chart === 'undefined') return;
+  Chart.defaults.font.family = '"Segoe UI", system-ui, sans-serif';
+  Chart.defaults.color = '#5b6770';
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) Chart.defaults.animation = false;
+  var axis = function (extra) { return Object.assign({ grid: { color: C.grid } }, extra || {}); };
+  var base = { responsive: true, maintainAspectRatio: false };
+  var tip = function (v) { return num.format(v); };
+
+  // Trend with period + metric toggles
+  var state = { period: 'monthly', metric: 'both' };
+  var trend = new Chart(el('trend'), { type: 'line', data: { labels: [], datasets: [] },
+    options: Object.assign({}, base, { interaction: { mode: 'index', intersect: false },
+      scales: { x: axis({ ticks: { maxTicksLimit: 14 } }), y: axis({ beginAtZero: true, ticks: { callback: tip } }) } }) });
+  function drawTrend() {
+    var rows = state.period === 'monthly' ? D.monthly : D.weekly, key = state.period === 'monthly' ? 'month_label' : 'week_label';
+    var sets = [];
+    if (state.metric !== 'profit') sets.push({ label: 'Revenue', data: rows.map(function (r) { return r.revenue; }), borderColor: C.revenue, backgroundColor: C.revenue, tension: .25, pointRadius: state.period === 'monthly' ? 3 : 0, borderWidth: 2 });
+    if (state.metric !== 'revenue') sets.push({ label: 'Profit', data: rows.map(function (r) { return r.profit; }), borderColor: C.profit, backgroundColor: C.profit, tension: .25, pointRadius: state.period === 'monthly' ? 3 : 0, borderWidth: 2 });
+    trend.data.labels = rows.map(function (r) { return r[key]; });
+    trend.data.datasets = sets; trend.update();
+    var best = rows.slice().sort(function (a, b) { return b.revenue - a.revenue; })[0];
+    el('trendNote').textContent = best ? 'Highest ' + (state.period === 'monthly' ? 'month' : 'week') + ': ' + best[key] + ' (' + num.format(best.revenue) + ' revenue).' : '';
+  }
+  [['periodSeg', 'period'], ['metricSeg', 'metric']].forEach(function (p) {
+    el(p[0]).addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      state[p[1]] = b.dataset.v;
+      el(p[0]).querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', x === b ? 'true' : 'false'); });
+      drawTrend();
+    });
+  });
+  drawTrend();
+
+  new Chart(el('regions'), { type: 'bar', data: { labels: D.regions.map(function (r) { return r.region_name; }),
+    datasets: [{ label: 'Revenue', data: D.regions.map(function (r) { return r.revenue; }), backgroundColor: C.revenue }] },
+    options: Object.assign({}, base, { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: axis({ ticks: { callback: tip } }), y: { grid: { display: false } } } }) });
+
+  new Chart(el('discounts'), { type: 'bar', data: { labels: D.discounts.map(function (r) { return r.discount_band; }),
+    datasets: [{ label: 'Profit margin %', data: D.discounts.map(function (r) { return r.profit_margin_pct; }),
+      backgroundColor: D.discounts.map(function (r) { return r.profit_margin_pct < 0 ? C.warn : C.profit; }) }] },
+    options: Object.assign({}, base, { plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: axis({ ticks: { callback: function (v) { return v + '%'; } } }) } }) });
+
+  new Chart(el('products'), { type: 'bar', data: { labels: D.top_products.map(function (r) { return r.product_name; }),
+    datasets: [{ label: 'Revenue', data: D.top_products.map(function (r) { return r.revenue; }), backgroundColor: C.revenue }] },
+    options: Object.assign({}, base, { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: axis({ ticks: { callback: tip } }), y: { grid: { display: false } } } }) });
+
+  new Chart(el('categories'), { type: 'bar', data: { labels: D.categories.map(function (r) { return r.category; }),
+    datasets: [{ label: 'Revenue', data: D.categories.map(function (r) { return r.revenue; }), backgroundColor: C.revenue },
+               { label: 'Profit', data: D.categories.map(function (r) { return r.profit; }), backgroundColor: C.profit }] },
+    options: Object.assign({}, base, { scales: { x: { grid: { display: false } }, y: axis({ ticks: { callback: tip } }) } }) });
+})();
+</script>
+</body>
+</html>
